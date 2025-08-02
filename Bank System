@@ -1,0 +1,495 @@
+using System;
+using System.Collections.Generic;
+
+// Represents a bank account with basic deposit and withdrawal functionality
+public class Account
+{
+    public string Name { get; set; }
+    public decimal Balance { get; private set; }
+
+    public Account(string name, decimal balance)
+    {
+        Name = name;
+        Balance = balance;
+    }
+
+    // Deposits money into the account
+    public void Deposit(decimal amount)
+    {
+        if (amount < 0)
+        {
+            Console.WriteLine("Deposit amount cannot be negative.");
+            return;
+        }
+        Balance += amount;
+    }
+
+    // Withdraws money from the account if sufficient funds are available
+    public bool Withdraw(decimal amount)
+    {
+        if (amount < 0)
+        {
+            Console.WriteLine("Withdrawal amount cannot be negative.");
+            return false;
+        }
+        if (Balance >= amount)
+        {
+            Balance -= amount;
+            return true;
+        }
+        else
+        {
+            Console.WriteLine("Insufficient funds.");
+            return false;
+        }
+    }
+
+    // Prints account details
+    public void Print()
+    {
+        Console.WriteLine($"Account Name: {Name}, Balance: {Balance:C}");
+    }
+}
+
+// Abstract base class representing a financial transaction
+public abstract class Transaction
+{
+    protected decimal _amount;
+    protected bool _executed;
+    protected bool _reversed;
+    protected DateTime _datestamp;
+    protected Account _account;
+    public DateTime DateStamp { get { return _datestamp; } }
+    public abstract bool Success { get; }
+
+    public Transaction(Account account, decimal amount)
+    {
+        _account = account;
+        _amount = amount;
+    }
+
+    // Marks the transaction as executed
+    public virtual void Execute()
+    {
+        if (!_executed)
+        {
+            _executed = true;
+            _datestamp = DateTime.Now;
+        }
+    }
+
+    public abstract void Rollback();
+    public abstract void Print();
+}
+
+// Handles deposit transactions
+public class DepositTransaction : Transaction
+{
+    public override bool Success { get { return _executed && !_reversed; } }
+
+    public DepositTransaction(Account account, decimal amount) : base(account, amount) { }
+
+    public override void Execute()
+    {
+        if (!_executed)
+        {
+            _account.Deposit(_amount);
+            base.Execute();
+        }
+    }
+
+    public override void Rollback()
+    {
+        if (!_executed || _reversed)
+            throw new InvalidOperationException("Cannot rollback: Transaction not executed or already reversed.");
+        _account.Withdraw(_amount);
+        _reversed = true;
+        _datestamp = DateTime.Now;
+    }
+
+    public override void Print()
+    {
+        Console.WriteLine($"Deposit {_amount:C} | Executed: {_executed} | Reversed: {_reversed} | Date: {_datestamp}");
+    }
+}
+
+// Handles withdrawal transactions
+public class WithdrawTransaction : Transaction
+{
+    private bool _success;
+    public override bool Success { get { return _success; } }
+
+    public WithdrawTransaction(Account account, decimal amount) : base(account, amount) { }
+
+    public override void Execute()
+    {
+        if (!_executed)
+        {
+            _success = _account.Withdraw(_amount);
+            if (_success)
+                base.Execute();
+        }
+    }
+
+    public override void Rollback()
+    {
+        if (!_success || _reversed)
+            throw new InvalidOperationException("Cannot rollback: Transaction not executed or already reversed.");
+        _account.Deposit(_amount);
+        _reversed = true;
+        _datestamp = DateTime.Now;
+    }
+
+    public override void Print()
+    {
+        Console.WriteLine($"Withdrawal {_amount:C} | Success: {_success} | Reversed: {_reversed} | Date: {_datestamp}");
+    }
+}
+
+// Handles transfer transactions
+public class TransferTransaction : Transaction
+{
+    private bool _success;
+    private Account _toAccount;
+    public override bool Success { get { return _success; } }
+
+    public TransferTransaction(Account fromAccount, Account toAccount, decimal amount) : base(fromAccount, amount)
+    {
+        _toAccount = toAccount;
+    }
+
+    public override void Execute()
+    {
+        if (!_executed)
+        {
+            if (_account.Withdraw(_amount))
+            {
+                _toAccount.Deposit(_amount);
+                _success = true;
+                base.Execute();
+            }
+        }
+    }
+
+    public override void Rollback()
+    {
+        if (!_success || _reversed)
+            throw new InvalidOperationException("Cannot rollback: Transfer unsuccessful or already reversed.");
+        _toAccount.Withdraw(_amount);
+        _account.Deposit(_amount);
+        _reversed = true;
+        _datestamp = DateTime.Now;
+    }
+
+    public override void Print()
+    {
+        Console.WriteLine($"Transfer {_amount:C} from {_account.Name} to {_toAccount.Name} | Success: {_success} | Reversed: {_reversed} | Date: {_datestamp}");
+    }
+}
+
+// Manages accounts and transactions
+public class Bank
+{
+    private List<Account> accounts = new List<Account>();
+    private List<Transaction> _transactions = new List<Transaction>();
+
+    // Adds a new account to the bank
+    public void AddAccount(Account account)
+    {
+        accounts.Add(account);
+    }
+
+    // Retrieves an account by name
+    public Account GetAccount(string name)
+    {
+        foreach (Account account in accounts)
+        {
+            if (account.Name == name)
+            {
+                return account;
+            }
+        }
+        return null;
+    }
+
+    // Executes a transaction and stores it in history if successful
+    public void ExecuteTransaction(Transaction transaction)
+    {
+        transaction.Execute();
+        if (transaction.Success)
+        {
+            _transactions.Add(transaction);
+        }
+    }
+
+    // Rolls back a successful transaction if possible
+    public void RollbackTransaction(Transaction transaction)
+    {
+        if (transaction == null)
+        {
+            Console.WriteLine("Invalid transaction.");
+            return;
+        }
+        if (!transaction.Success)
+        {
+            Console.WriteLine("Cannot rollback an unsuccessful transaction.");
+            return;
+        }
+        try
+        {
+            transaction.Rollback();
+            _transactions.Remove(transaction);
+            Console.WriteLine("Rollback successful.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Rollback failed: {ex.Message}");
+        }
+    }
+
+    // Prints the history of transactions
+    public void PrintTransactionHistory()
+    {
+        if (_transactions.Count == 0)
+        {
+            Console.WriteLine("No transactions recorded.");
+            return;
+        }
+        for (int i = 0; i < _transactions.Count; i++)
+        {
+            Console.Write($"{i}: ");
+            _transactions[i].Print();
+        }
+    }
+
+    public List<Transaction> GetTransactions()
+    {
+        return _transactions;
+    }
+}
+
+// Handles the user interface for banking operations
+public class BankSystem
+{
+    private Bank bank = new Bank();
+
+    public void ShowMenu()
+    {
+        while (true)
+        {
+            Console.Clear();
+            Console.WriteLine("--- Banking System Menu ---");
+            Console.WriteLine("1. Add new account");
+            Console.WriteLine("2. Deposit money");
+            Console.WriteLine("3. Withdraw money");
+            Console.WriteLine("4. Transfer money");
+            Console.WriteLine("5. Print account details");
+            Console.WriteLine("6. Print transaction history");
+            Console.WriteLine("7. Rollback transaction");
+            Console.WriteLine("8. Exit");
+            Console.Write("Choose an option: ");
+            string choice = Console.ReadLine();
+            switch (choice)
+            {
+                case "1":
+                    AddNewAccount();
+                    break;
+                case "2":
+                    DoDeposit();
+                    break;
+                case "3":
+                    DoWithdraw();
+                    break;
+                case "4":
+                    DoTransfer();
+                    break;
+                case "5":
+                    DoPrint();
+                    break;
+                case "6":
+                    PrintTransactionHistory();
+                    break;
+                case "7":
+                    DoRollback();
+                    break;
+                case "8":
+                    Console.WriteLine("Exiting program...");
+                    return;
+                default:
+                    Console.WriteLine("Invalid option. Press any key to try again...");
+                    Console.ReadKey();
+                    break;
+            }
+        }
+    }
+
+    // Prompts user to add a new account
+    private void AddNewAccount()
+    {
+        Console.Write("Enter the account name: ");
+        string name = Console.ReadLine();
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            Console.WriteLine("Account name cannot be empty. Press any key to return...");
+            Console.ReadKey();
+            return;
+        }
+        if (bank.GetAccount(name) != null)
+        {
+            Console.WriteLine("Account name already exists. Press any key to return...");
+            Console.ReadKey();
+            return;
+        }
+        Console.Write("Enter the starting balance: ");
+        if (!decimal.TryParse(Console.ReadLine(), out decimal balance) || balance < 0)
+        {
+            Console.WriteLine("Invalid balance. Press any key to return...");
+            Console.ReadKey();
+            return;
+        }
+        bank.AddAccount(new Account(name, balance));
+        Console.WriteLine("Account created successfully. Press any key to return...");
+        Console.ReadKey();
+    }
+
+    // Handles deposit operation
+    private void DoDeposit()
+    {
+        Account account = FindAccount();
+        if (account == null) return;
+        Console.Write("Enter the amount to deposit: ");
+        if (!decimal.TryParse(Console.ReadLine(), out decimal amount) || amount <= 0)
+        {
+            Console.WriteLine("Invalid amount. Press any key to return...");
+            Console.ReadKey();
+            return;
+        }
+        bank.ExecuteTransaction(new DepositTransaction(account, amount));
+        Console.WriteLine("Deposit completed. Press any key to return...");
+        Console.ReadKey();
+    }
+
+    // Handles withdrawal operation
+    private void DoWithdraw()
+    {
+        Account account = FindAccount();
+        if (account == null) return;
+        Console.Write("Enter the amount to withdraw: ");
+        if (!decimal.TryParse(Console.ReadLine(), out decimal amount) || amount <= 0)
+        {
+            Console.WriteLine("Invalid amount. Press any key to return...");
+            Console.ReadKey();
+            return;
+        }
+        bank.ExecuteTransaction(new WithdrawTransaction(account, amount));
+        Console.WriteLine("Withdrawal completed. Press any key to return...");
+        Console.ReadKey();
+    }
+
+    // Handles money transfer between accounts
+    private void DoTransfer()
+    {
+        Console.Write("Enter the source account name: ");
+        Account fromAccount = FindAccount();
+        if (fromAccount == null) return;
+        Console.Write("Enter the destination account name: ");
+        Account toAccount = FindAccount();
+        if (toAccount == null) return;
+        if (fromAccount == toAccount)
+        {
+            Console.WriteLine("Cannot transfer to the same account. Press any key to return...");
+            Console.ReadKey();
+            return;
+        }
+        Console.Write("Enter the amount to transfer: ");
+        if (!decimal.TryParse(Console.ReadLine(), out decimal amount) || amount <= 0)
+        {
+            Console.WriteLine("Invalid amount. Press any key to return...");
+            Console.ReadKey();
+            return;
+        }
+        bank.ExecuteTransaction(new TransferTransaction(fromAccount, toAccount, amount));
+        Console.WriteLine("Transfer completed. Press any key to return...");
+        Console.ReadKey();
+    }
+
+    // Finds an account based on user input
+    private Account FindAccount()
+    {
+        Console.Write("Enter account holder's name: ");
+        string name = Console.ReadLine();
+        Account account = bank.GetAccount(name);
+        if (account == null)
+        {
+            Console.WriteLine("Account not found. Press any key to return...");
+            Console.ReadKey();
+        }
+        return account;
+    }
+
+    // Prints account details
+    private void DoPrint()
+    {
+        Account account = FindAccount();
+        if (account != null)
+        {
+            account.Print();
+            Console.WriteLine("Press any key to return...");
+            Console.ReadKey();
+        }
+    }
+
+    // Prints transaction history
+    private void PrintTransactionHistory()
+    {
+        Console.Clear();
+        Console.WriteLine("=== Transaction History ===");
+        bank.PrintTransactionHistory();
+        Console.WriteLine("\nPress any key to return to the menu...");
+        Console.ReadKey();
+    }
+
+    // Handles rollback with full user interaction
+    private void DoRollback()
+    {
+        Console.Clear();
+        Console.WriteLine("=== Rollback Transaction ===");
+        Console.WriteLine("Transaction History:");
+        if (bank.GetTransactions().Count == 0)
+        {
+            Console.WriteLine("No transactions available.");
+            Console.WriteLine("Press any key to return to the menu...");
+            Console.ReadKey();
+            return;
+        }
+        bank.PrintTransactionHistory();
+        Console.WriteLine($"\nEnter the transaction number to rollback (0 to {bank.GetTransactions().Count - 1}), or -1 to cancel:");
+        string input = Console.ReadLine();
+        if (!int.TryParse(input, out int index) || (index < -1 || index >= bank.GetTransactions().Count))
+        {
+            Console.WriteLine("Invalid input. Press any key to return to the menu...");
+            Console.ReadKey();
+            return;
+        }
+        if (index == -1)
+        {
+            Console.WriteLine("Rollback cancelled. Press any key to return to the menu...");
+            Console.ReadKey();
+            return;
+        }
+        Transaction selectedTransaction = bank.GetTransactions()[index];
+        bank.RollbackTransaction(selectedTransaction);
+        Console.WriteLine("Press any key to return to the menu...");
+        Console.ReadKey();
+    }
+}
+
+class Program
+{
+    static void Main()
+    {
+        new BankSystem().ShowMenu();
+    }
+}
+
+// used oop for this program
